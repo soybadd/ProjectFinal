@@ -387,7 +387,7 @@ async def test(ctx, *, message):
     # '*' is for spacebar
     await ctx.channel.send(message)
 
-@bot.command()
+'''@bot.command()
 async def ริว(ctx):
     # '*' is for spacebar
     await ctx.channel.send('ไอเหี้ยลาบริวอะนะ')
@@ -430,7 +430,7 @@ async def อัสสัม(ctx):
 @bot.command()
 async def ดอน(ctx):
     # '*' is for spacebar
-    await ctx.channel.send('ไอเถ่าดอนอะนะ')
+    await ctx.channel.send('ไอเถ่าดอนอะนะ')'''
 
 # Clear Command
 @bot.command()

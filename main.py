@@ -26,7 +26,9 @@ youtube_dl.utils.bug_reports_message = lambda: ''
 
 ytdl_format_options = {
     'format': 'bestaudio/best',
-    'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
+    'extractaudio': True,
+    'audioformat': 'mp3',
+    'outtmpl': 'downloads/%(extractor)s-%(id)s-%(title)s.%(ext)s',
     'restrictfilenames': True,
     'noplaylist': True,
     'nocheckcertificate': True,
@@ -35,7 +37,7 @@ ytdl_format_options = {
     'quiet': True,
     'no_warnings': True,
     'default_search': 'auto',
-    'source_address': '0.0.0.0' # bind to ipv4 since ipv6 addresses cause issues sometimes
+    'source_address': '0.0.0.0',
 }
 
 
@@ -78,7 +80,7 @@ class YTDLSource(discord.PCMVolumeTransformer):
             # take first item from a playlist
             data = data['entries'][0]
 
-        await ctx.send(f'```ini\n[Added {data["title"]} to the Queue.]\n```') #delete after can be added
+        await ctx.send(f'```ini\n[Added {data["title"]} to the Queue.]\n```', delete_after = 15) #delete after can be added
 
         if download:
             source = ytdl.prepare_filename(data)
@@ -106,7 +108,8 @@ class MusicPlayer:
     When the bot disconnects from the Voice it's instance will be destroyed.
     """
 
-    __slots__ = ('bot', '_guild', '_channel', '_cog', 'queue', 'next', 'current', 'np', 'volume')
+    __slots__ = ('bot', '_guild', '_channel', '_cog', 'queue', 'next',
+                 'current', 'np', 'volume')
 
     def __init__(self, ctx):
         self.bot = ctx.bot
@@ -135,25 +138,29 @@ class MusicPlayer:
                 async with timeout(300):  # 5 minutes...
                     source = await self.queue.get()
             except asyncio.TimeoutError:
-                del players[self._guild]
-                return await self.destroy(self._guild)
+                return self.destroy(self._guild)
 
             if not isinstance(source, YTDLSource):
                 # Source was probably a stream (not downloaded)
                 # So we should regather to prevent stream expiration
                 try:
-                    source = await YTDLSource.regather_stream(source, loop=self.bot.loop)
+                    source = await YTDLSource.regather_stream(
+                        source, loop=self.bot.loop)
                 except Exception as e:
-                    await self._channel.send(f'There was an error processing your song.\n'
-                                             f'```css\n[{e}]\n```')
+                    await self._channel.send(
+                        f'There was an error processing your song.\n'
+                        f'```css\n[{e}]\n```')
                     continue
 
             source.volume = self.volume
             self.current = source
 
-            self._guild.voice_client.play(source, after=lambda _: self.bot.loop.call_soon_threadsafe(self.next.set))
-            self.np = await self._channel.send(f'**Now Playing:** `{source.title}` requested by '
-                                               f'`{source.requester}`')
+            self._guild.voice_client.play(source,
+                                          after=lambda _: self.bot.loop.
+                                          call_soon_threadsafe(self.next.set))
+            self.np = await self._channel.send(
+                f'**Now Playing:** `{source.title}` requested by '
+                f'`{source.requester}`')
             await self.next.wait()
 
             # Make sure the FFmpeg process is cleaned up.
@@ -166,13 +173,205 @@ class MusicPlayer:
             except discord.HTTPException:
                 pass
 
-    # Leaving itslef out function
-    async def destroy(self, guild,text):
+    def destroy(self, guild):
         """Disconnect and cleanup the player."""
-        await self._guild.voice_client.disconnect()
         return self.bot.loop.create_task(self._cog.cleanup(guild))
 
+class Song(commands.Cog):
 
+    def __init__(self, bot):
+        self.bot = bot
+        self.players = {}
+
+
+    async def cleanup(self, guild):
+        try:
+            await guild.voice_client.disconnect()
+        except AttributeError:
+            pass
+
+        try:
+            del self.players[guild.id]
+        except KeyError:
+            pass
+
+
+    # In case, there are many sever that our bot are running in. We need to seperate the music player for preventing the song overlapping.
+    # Creating this function will be very helpful. The music player will be generate in server by sever. 
+    players = {}
+    # This variable is for storing an information about the music player and the amount of sever
+    def get_player(self, ctx):
+    # It will check if there is any music player in {players}
+        try:
+            player = self.players[ctx.guild.id] 
+            # If it already has in players, it will = player 
+        except:
+            player = MusicPlayer(ctx)
+            self.players[ctx.guild.id] = player
+            # If there is not, it will create a new object from MusicPlayer Class and put it = player 
+        return player
+        # Then return player
+
+
+    # Play the Song Command
+    @commands.command(name='play', aliases=['p'])
+    async def play_(self, ctx, search: str):
+        print('play')
+        self.bot = ctx.bot
+        self._guild = ctx.guild
+        my_channel = ctx.author.voice.channel
+        # is where the channel you are
+        voice_client = get(self.bot.voice_clients, guild=ctx.guild)
+        # is the variable that is the sound for a bot, get is function that store the information in a channel
+        if my_channel == None:
+            await ctx.channel.send('You aren\'t in any channel', delete_after = 8)
+        if voice_client == None:
+            # Check if a bot isn't in any sever 
+            await ctx.channel.send('Lil Krit has joined to {0}\nWhat\'s up Dude!'.format(my_channel), delete_after = 8)
+            await my_channel.connect()
+            # A bot will connect to the sever
+            voice_client = get(self.bot.voice_clients, guild=ctx.guild)
+
+        await ctx.trigger_typing()
+        #  Putting 'Bot's Krit is typing...' just for decorate a bot
+
+        startplayer = self.get_player(ctx)
+        source = await YTDLSource.create_source(ctx, search, loop=bot.loop, download=False)
+
+        print('Playing song')
+        await startplayer.queue.put(source)
+        #add the song in to queue
+
+
+    # Pause the Song Command
+    @commands.command(name='pause')
+    async def pause_(self, ctx):
+        print('pause')
+        my_channel = ctx.author.voice.channel
+        # is where the channel you are
+        voice_client = get(self.bot.voice_clients, guild=ctx.guild)
+        # is the variable that store the sound for a bot, (get is function that store the information in a channel)
+        bot_channel = voice_client.channel
+        # is where the channel your bot is
+        if voice_client == None:
+            # Check if a bot isn't in any sever
+            await ctx.channel.send("Lil Krit is not connected to the Voice Channel", delete_after = 8)
+            return
+
+        if bot_channel != my_channel:
+            # Check if a bot and you are not in the same sever  
+            # 'voice_client.channel' = where the channel bot is, 'channel' = where the channel you are
+            await ctx.channel.send("Can't do that. Lil Krit is currently connected to {0}".format(bot_channel), delete_after = 8)
+            return
+
+        else:
+            # A bot will stop the song
+            voice_client.pause()
+
+
+    # Resume the Song Command
+    @commands.command(name='resume')
+    async def resume_(self, ctx):
+        print('resume')
+        my_channel = ctx.author.voice.channel
+        # is where the channel you are
+        voice_client = get(self.bot.voice_clients, guild=ctx.guild)
+        # is the variable that store the sound for a bot, (get is function that store the information in a channel)
+        bot_channel = voice_client.channel
+        # is where the channel your bot is
+        if voice_client == None:
+            # Check if a bot isn't in any sever
+            await ctx.channel.send("Lil Krit is not connected to the Voice Channel", delete_after = 8)
+            return
+
+        if bot_channel != my_channel:
+            # Check if a bot and you are not in the same sever  
+            # 'voice_client.channel' = where the channel bot is, 'channel' = where the channel you are
+            await ctx.channel.send("Can't do that. Lil Krit is currently connected to {0}".format(bot_channel), delete_after = 8)
+            return
+
+        else:
+            # A bot will resume the song
+            voice_client.resume()
+
+
+    # Stop the Song Command
+    @commands.command(name='stop')
+    async def stop_(self, ctx):
+        print('stop')
+        my_channel = ctx.author.voice.channel
+        # is where the channel you are
+        voice_client = get(self.bot.voice_clients, guild=ctx.guild)
+        # is the variable that store the sound for a bot, (get is function that store the information in a channel)
+        bot_channel = voice_client.channel
+        # is where the channel your bot is
+        if voice_client == None:
+            # Check if a bot isn't in any sever
+            await ctx.channel.send("Lil Krit is not connected to the Voice Channel", delete_after = 8)
+            return
+
+        if bot_channel != my_channel:
+            # Check if a bot and you are not in the same sever  
+            # 'voice_client.channel' = where the channel bot is, 'channel' = where the channel you are
+            await ctx.channel.send("Can't do that. Lil Krit is currently connected to {0}".format(bot_channel), delete_after = 8)
+            return
+
+        else:
+            # A bot will stop the song
+            voice_client.stop()
+
+
+    # Skip the Song in Queue Command
+    @commands.command(name='skip')
+    async def skip_(self, ctx):
+        print('skip')
+        voice_client = get(self.bot.voice_clients, guild=ctx.guild)
+        # is the variable that store the sound for a bot, (get is function that store the information in a channel)
+        if voice_client == None:
+            # Check if a bot isn't in any sever
+            await ctx.channel.send("Lil Krit is not connected to the Voice Channel", delete_after = 8)
+            return
+        
+        await ctx.send(f'**`{ctx.author}`**: Skipped the song!')
+        voice_client.stop()
+
+
+    # Open Queue List Command
+    @commands.command(name='queue', aliases=['q', 'playlist'])
+    async def queue_info(self, ctx):
+        print('queue')
+        voice_client = get(self.bot.voice_clients, guild=ctx.guild)
+        # is the variable that store the sound for a bot, (get is function that store the information in a channel)
+        if voice_client == None:
+            # Check if a bot isn't in any sever
+            await ctx.channel.send("Lil Krt is not connected to the Voice Channel", delete_after = 8)
+            return
+            
+        player = self.get_player(ctx)
+        # We need player for get information about list of the song
+        if player.queue.empty():
+            # Check if there is no song in the queue
+            await ctx.send('There are currently no more queued songs', delete_after = 6)
+            return
+            
+        upcoming = list(itertools.islice(player.queue._queue,0,player.queue.qsize()))
+        # The asyncio queue is similar to list but it isn't. So we create list for storage the song from the asyncio queue
+        listtostr = '\n'.join(f'**`{song["title"]}`**' for song in upcoming)
+        # Format list to string
+        embed = discord.Embed(title=f'Upcoming - Next {len(upcoming)}', description=listtostr, color=0xFF7A33)
+        await ctx.send(embed=embed)
+
+
+    # Leave Channel Command
+    @commands.command(name='leave', aliases=['l'])
+    async def leave_(self, ctx: commands.Context):
+        print('Leave')
+        # deleting music player profile
+        await ctx.channel.send('See ya Dude!', delete_after = 5)
+        await self.cleanup(ctx.guild)
+
+
+###########################################################################################################
 
 # Turning on Bot
 @bot.event
@@ -188,6 +387,50 @@ async def test(ctx, *, message):
     # '*' is for spacebar
     await ctx.channel.send(message)
 
+@bot.command()
+async def ริว(ctx):
+    # '*' is for spacebar
+    await ctx.channel.send('ไอเหี้ยลาบริวอะนะ')
+
+@bot.command()
+async def กัน(ctx):
+    # '*' is for spacebar
+    await ctx.channel.send('ไอควายกันมือขวาอะนะ')
+
+@bot.command()
+async def โคลเซ่(ctx):
+    # '*' is for spacebar
+    await ctx.channel.send('ไอโย่งเซ่อะนะ')
+
+@bot.command()
+async def รัน(ctx):
+    # '*' is for spacebar
+    await ctx.channel.send('ไอรันที่กลัวเมียอะนะ')
+
+@bot.command()
+async def กฤต(ctx):
+    # '*' is for spacebar
+    await ctx.channel.send('คุณกฤตที่หล่อๆ อะนะ')
+
+@bot.command()
+async def นัท(ctx):
+    # '*' is for spacebar
+    await ctx.channel.send('นัทที่รสนิยมดีๆอะนะ')
+
+@bot.command()
+async def ริวหมา(ctx):
+    # '*' is for spacebar
+    await ctx.channel.send('ไอริวที่เสือกชื่อเหมือนเหี้ยลาบอะนะ')
+
+@bot.command()
+async def อัสสัม(ctx):
+    # '*' is for spacebar
+    await ctx.channel.send('สู้ววววววววว')
+
+@bot.command()
+async def ดอน(ctx):
+    # '*' is for spacebar
+    await ctx.channel.send('ไอเถ่าดอนอะนะ')
 
 # Clear Command
 @bot.command()
@@ -198,6 +441,7 @@ async def clear(ctx, amount = 1):
 # Logout Command
 @bot.command()
 async def logout(ctx):
+    print('logout')
     await ctx.channel.send('Loging Out...', delete_after = 5)
     await bot.logout()
 
@@ -210,193 +454,21 @@ async def help(ctx):
     emBed.add_field(name='*help', value = 'Get help commands', inline = False)
     emBed.add_field(name='*test <text>', value = 'Respond message you\'ve send', inline = False)
     emBed.add_field(name='*clear <number of messages>', value = 'Delete the previous messages', inline = False)
-    emBed.add_field(name='*play <URL or name of the song>', value = 'Play the song and add it in to a queue', inline = False)
+    emBed.add_field(name='*play or p <URL or name of the song>', value = 'Play the song and add it in to a queue', inline = False)
     emBed.add_field(name='*pause', value = 'Pause the song', inline = False)
     emBed.add_field(name='*resume', value = 'Resume the song', inline = False)
     emBed.add_field(name='*skip', value = 'Skip the song', inline = False)
     emBed.add_field(name='*stop', value = 'Stop the song', inline = False)
-    emBed.add_field(name='*queue', value = 'Show the queue list', inline = False)
-    emBed.add_field(name='*leave', value = 'Leave bot out of channel', inline = False)
+    emBed.add_field(name='*queue or q or playlist', value = 'Show the queue list', inline = False)
+    emBed.add_field(name='*leave or l', value = 'Leave bot out of channel', inline = False)
     emBed.add_field(name='*logout', value = 'Turn to be offline', inline = False)
     emBed.set_thumbnail(url='https://i.postimg.cc/W1CR8p3c/IMG-6998.jpg')
     emBed.set_author(name='Krithoolychit\'s Project', url = 'https://discord.com/users/496281331060178944', icon_url='https://i.postimg.cc/Vv2s2xBJ/Presentation1.png')
     await ctx.channel.send(embed = emBed)
-
-
-# Play the Song Command
-@bot.command()
-async def play(ctx, *,  search:str):
-    print('play')
-    my_channel = ctx.author.voice.channel
-    # is where the channel you are
-    voice_client = get(bot.voice_clients, guild=ctx.guild)
-    # is the variable that is the sound for a bot, get is function that store the information in a channel
-    '''if my_channel == None:
-        await ctx.channel.send('You aren\'t in any channel', delete_after = 8)'''
-    if voice_client == None:
-        # Check if a bot isn't in any sever 
-        await ctx.channel.send('Lil Krit has joined to {0}\nWhat\'s up Dude!'.format(my_channel), delete_after = 8)
-        await my_channel.connect()
-        # A bot will connect to the sever
-        voice_client = get(bot.voice_clients, guild=ctx.guild)
-
-    await ctx.trigger_typing()
-    #  Putting 'Bot's Krit is typing...' just for decorate a bot
-
-    startplayer = get_player(ctx)
-    source = await YTDLSource.create_source(ctx, search, loop=bot.loop, download=False)
-
-    await startplayer.queue.put(source)
-    #add the song in to queue
-
-
-# In case, there are many sever that our bot are running in. We need to seperate the music player for preventing the song overlapping.
-# Creating this function will be very helpful. The music player will be generate in server by sever. 
-players = {}
-# This variable is for storing an information about the music player and the amount of sever
-def get_player(ctx):
-# It will check if there is any music player in {players}
-    try:
-        player = players[ctx.guild.id] 
-        # If it already has in players, it will = player 
-    except:
-        player = MusicPlayer(ctx)
-        players[ctx.guild.id] = player
-        # If there is not, it will create a new object from MusicPlayer Class and put it = player 
-    return player
-    # Then return player
-
-
-
-# Pause the Song Command
-@bot.command()
-async def pause(ctx):
-    print('pause')
-    my_channel = ctx.author.voice.channel
-    # is where the channel you are
-    voice_client = get(bot.voice_clients, guild=ctx.guild)
-    # is the variable that store the sound for a bot, (get is function that store the information in a channel)
-    bot_channel = voice_client.channel
-    # is where the channel your bot is
-    if voice_client == None:
-        # Check if a bot isn't in any sever
-        await ctx.channel.send("Lil Krit is not connected to the Voice Channel", delete_after = 8)
-        return
-
-    if bot_channel != my_channel:
-        # Check if a bot and you are not in the same sever  
-        # 'voice_client.channel' = where the channel bot is, 'channel' = where the channel you are
-        await ctx.channel.send("Can't do that. Lil Krit is currently connected to {0}".format(bot_channel), delete_after = 8)
-        return
-
-    else:
-        # A bot will stop the song
-        voice_client.pause()
-
-
-# Resume the Song Command
-@bot.command()
-async def resume(ctx):
-    print('resume')
-    my_channel = ctx.author.voice.channel
-    # is where the channel you are
-    voice_client = get(bot.voice_clients, guild=ctx.guild)
-    # is the variable that store the sound for a bot, (get is function that store the information in a channel)
-    bot_channel = voice_client.channel
-    # is where the channel your bot is
-    if voice_client == None:
-        # Check if a bot isn't in any sever
-        await ctx.channel.send("Lil Krit is not connected to the Voice Channel", delete_after = 8)
-        return
-
-    if bot_channel != my_channel:
-        # Check if a bot and you are not in the same sever  
-        # 'voice_client.channel' = where the channel bot is, 'channel' = where the channel you are
-        await ctx.channel.send("Can't do that. Lil Krit is currently connected to {0}".format(bot_channel), delete_after = 8)
-        return
-
-    else:
-        # A bot will resume the song
-        voice_client.resume()
-
-
-# Stop the Song Command
-@bot.command()
-async def stop(ctx):
-    print('stop')
-    my_channel = ctx.author.voice.channel
-    # is where the channel you are
-    voice_client = get(bot.voice_clients, guild=ctx.guild)
-    # is the variable that store the sound for a bot, (get is function that store the information in a channel)
-    bot_channel = voice_client.channel
-    # is where the channel your bot is
-    if voice_client == None:
-        # Check if a bot isn't in any sever
-        await ctx.channel.send("Lil Krit is not connected to the Voice Channel", delete_after = 8)
-        return
-
-    if bot_channel != my_channel:
-        # Check if a bot and you are not in the same sever  
-        # 'voice_client.channel' = where the channel bot is, 'channel' = where the channel you are
-        await ctx.channel.send("Can't do that. Lil Krit is currently connected to {0}".format(bot_channel), delete_after = 8)
-        return
-
-    else:
-        # A bot will stop the song
-        voice_client.stop()
-
-
-# Skip the Song in Queue Command
-@bot.command()
-async def skip(ctx):
-    print('skip')
-    voice_client = get(bot.voice_clients, guild=ctx.guild)
-    # is the variable that store the sound for a bot, (get is function that store the information in a channel)
-    if voice_client == None:
-        # Check if a bot isn't in any sever
-        await ctx.channel.send("Lil Krit is not connected to the Voice Channel", delete_after = 8)
-        return
-    
-    await ctx.send(f'**`{ctx.author}`**: Skipped the song!')
-    voice_client.stop()
-
-
-# Open Queue List Command
-@bot.command()
-async def queue(ctx):
-    print('queue')
-    voice_client = get(bot.voice_clients, guild=ctx.guild)
-    # is the variable that store the sound for a bot, (get is function that store the information in a channel)
-    if voice_client == None:
-        # Check if a bot isn't in any sever
-        await ctx.channel.send("Lil Krt is not connected to the Voice Channel", delete_after = 8)
-        return
-        
-    player = get_player(ctx)
-    # We need player for get information about list of the song
-    if player.queue.empty():
-        # Check if there is no song in the queue
-        await ctx.send('There are currently no more queued songs', delete_after = 6)
-        return
-        
-    upcoming = list(itertools.islice(player.queue._queue,0,player.queue.qsize()))
-    # The asyncio queue is similar to list but it isn't. So we create list for storage the song from the asyncio queue
-    listtostr = '\n'.join(f'**`{song["title"]}`**' for song in upcoming)
-    # Format list to string
-    embed = discord.Embed(title=f'Upcoming - Next {len(upcoming)}', description=listtostr, color=0xFF7A33)
-    await ctx.send(embed=embed)
-
-
-# Leave Channel Command
-@bot.command()
-async def leave(ctx):
-    print('Leave')
-    # deleting music player profile
-    await ctx.channel.send('See ya Dude!', delete_after = 5)
-    await ctx.voice_client.disconnect()
-
 #run the web sever
 #keep_alive()
+
+bot.add_cog(Song(bot))
 
 # Putting token in for activating Bot
 bot.run(token)

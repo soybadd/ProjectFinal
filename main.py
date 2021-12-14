@@ -1,17 +1,17 @@
 # Import Libary discord to access to Discord's API
+from ctypes.wintypes import PINT
 import discord
 from discord.ext import commands
 from discord.utils import get
-# Import Libary youtube-dl for download videos from youtube.com or other video platforms
-import youtube_dl
 # Import Libary asyncio which can help to reduce using of time
 import asyncio
+import queue
 from async_timeout import timeout
 # Import partial for creating function with fixed parameter
 from functools import partial
 # Import itertools for using islice function
 import itertools
-# Import YoutubeDL for downloding the song
+# Import Libary youtube-dl for download the song from youtube.com
 from youtube_dl import YoutubeDL
 
 
@@ -22,17 +22,10 @@ load_dotenv()
 token = os.getenv('Token')
 
 
-
 # Declare prefix of the command
 bot = commands.Bot(command_prefix = '*', help_command = None)
 
 
-# Runtime Error Bug fixed in HEROKU
-OPUS_LIBS = ['libopus-0.x86.dll', 'libopus-0.x64.dll', 'libopus-0.dll', 'libopus.so.0', 'libopus.0.dylib']
-
-
-# Silence useless bug reports messages
-youtube_dl.utils.bug_reports_message = lambda: ''
 
 ytdl_format_options = {
     'format': 'bestaudio/best',
@@ -45,6 +38,7 @@ ytdl_format_options = {
     'ignoreerrors': False, # Stop if download is error.
     'no_warnings': True, # Do not print out anything for warnings.
     'default_search': 'auto', # Prepend this string if an input url is not valid. 'auto' for elaborate guessing
+    'quiet': True,
 }
 
 ytdl = YoutubeDL(ytdl_format_options)
@@ -74,16 +68,17 @@ class ytdlsource(discord.PCMVolumeTransformer):
     async def create_source(cls, ctx, search: str, *, loop, download=False):
         # Creating event loop which is intermediaries for managing all the event.
         loop = loop or asyncio.get_event_loop()
+
+
+        to_run = partial(ytdl.extract_info, url=search, download=download)
         # Use partial class to fix the parameter
         # from Youtube_dl by ytdl format option as ytdl
-        to_run = partial(ytdl.extract_info, url=search, download=download)
-        print(search)
-        print('naheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee')
+
         # the type of data is a dict
         data = await loop.run_in_executor(None, to_run)
         # Finding and Getting the information of the song(in only typing the song's name :search the name of the song and pick up the first video from Youtube)
         # Downloading  the song by using ytdl_format_option
-        print('kuayyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy')
+
         if 'entries' in data:
             # take first item from a data beacause we don't need them
             # Using only the first index of the list in the value of 'entrtries'(key)
@@ -94,9 +89,9 @@ class ytdlsource(discord.PCMVolumeTransformer):
         # just for using the return
         if download:
             source = ytdl.prepare_filename(data)
+            # source is for generate the file name
         else:
             return {'webpage_url': data['webpage_url'], 'requester': ctx.author, 'title': data['title']}
-            
         return cls(discord.FFmpegPCMAudio(source, **ffmpeg_options), data=data, requester=ctx.author)
         # Using cls due to @classmethod (cls is for the class, self is for the object)
         # Add function 'ffmepeg_options' for plying until the end(Bug fixed)
@@ -111,15 +106,14 @@ class ytdlsource(discord.PCMVolumeTransformer):
 
         # Use partial to fix the parameter 
         to_run = partial(ytdl.extract_info, url=data['webpage_url'], download=False)
-        print('nahaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
-        print(data['webpage_url'])
+
         data = await loop.run_in_executor(None, to_run)
         # Download the rest part that we need to stream
-        print('huaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaakuayyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy')
+
         return cls(discord.FFmpegPCMAudio(data['url'], **ffmpeg_options), data=data, requester=requester)
         # Using cls due to @classmethod (cls is for the class, self is for the object)
         # Add function 'ffmepeg_options' for plying until the end(Bug fixed)
-
+        # Finally, ffempeg will get the URL and stream it
 
 # Creating player
 class MusicPlayer:                 
@@ -159,12 +153,12 @@ class MusicPlayer:
                 # return the destroy function below
 
             source = await ytdlsource.regather_stream(source, loop=self.bot.loop)
-
+            
             source.volume = self.volume
             self.current = source
 
             self._guild.voice_client.play(source, after=lambda _: self.bot.loop. call_soon_threadsafe(self.event.set))
-            self.np = await self._channel.send('**Now Playing:** `{0}` requested by `{1}`'.format(source.title, source.requester))\
+            self.np = await self._channel.send('**Now Playing:** `{0}` requested by `{1}`'.format(source.title, source.requester))
             # Sending Now Playing
             await self.event.wait()
             # Wait until the song end
@@ -179,7 +173,7 @@ class MusicPlayer:
                 # Now Playing message will be delete
                 await self.np.delete()
                 # delete now playing message
-            except discord.HTTPException:
+            except:
                 pass
 
     def destroy(self, guild):
@@ -198,13 +192,13 @@ class Song(commands.Cog):
         # After Timeout Error, a bot will disconnect automatically
         try:
             await guild.voice_client.disconnect()
-        except AttributeError:
+        except:
             pass
         
         # Then deleting music player
         try:
             del self.players[guild.id]
-        except KeyError:
+        except:
             pass
 
 
@@ -221,41 +215,143 @@ class Song(commands.Cog):
         except:
             player = MusicPlayer(ctx)
             self.players[ctx.guild.id] = player
-            # If there is not, it will create a new object from MusicPlayer Class and put it = player 
+            # If there is not, it will create a new object from MusicPlayer Class and put it = player
         return player
         # Then return player
 
 
     # Play the Song Command
     @commands.command(name='play', aliases=['p'])
-    async def play_(self, ctx ,* ,search: str, my_channel: discord.VoiceChannel = None):
+    async def play_(self, ctx ,* ,search: str):
         print('play')
         self.bot = ctx.bot
         self._guild = ctx.guild
+        my_channel = ctx.author.voice.channel
         # is where the channel you are
         voice_client = get(self.bot.voice_clients, guild=ctx.guild)
         # is the variable that is the information for a bot, get is a function that store the information in a channel
-        try:
-            # Check if you're not in any sever
-            my_channel = ctx.author.voice.channel
-            if voice_client == None:
+
+        if voice_client == None:
             # Check if a bot isn't in any sever
-                await ctx.channel.send('Lil Krit has joined to **`{0}`**\nWhat\'s up Dude!'.format(my_channel), delete_after = 8)
-                await my_channel.connect()
-                # A bot will connect to the sever you were on
+            await ctx.channel.send('Lil Krit has joined to **`{0}`**\nWhat\'s up Dude!'.format(my_channel), delete_after = 8)
+            await my_channel.connect()
+            # A bot will connect to the sever you were on
 
-                await ctx.trigger_typing()
-                # Putting 'Bot's Krit is typing...' just for decorate a bot
+        await ctx.trigger_typing()
+        # Putting 'Bot's Krit is typing...' just for decorate a bot
 
-                startplayer = self.get_player(ctx)
-                # Get the player from get_player function
-                source = await ytdlsource.create_source(ctx, search, loop=bot.loop, download=False)
-                # Starting downloading the song via ytdlsource Class
-                print('Playing song')
-                await startplayer.queue.put(source)
-                # Add the song in to queue
-        except:
-            await ctx.channel.send('You aren\'t in any channel', delete_after = 8)
+        startplayer = self.get_player(ctx)
+        # Run get_player function Get the player from get_player function
+        source = await ytdlsource.create_source(ctx, search, loop=bot.loop, download=False)
+        # Starting downloading the song via ytdlsource Class
+        # Add the song in to queue
+        print('Playing song')
+        await startplayer.queue.put(source)
+        # Playing the song
+
+
+    # Play the Song Command
+    @commands.command(name='add', aliases=['a'])
+    async def add_(self, ctx ,* ,search: str):
+        print('add')
+        self.bot = ctx.bot
+        self._guild = ctx.guild
+        my_channel = ctx.author.voice.channel
+        # is where the channel you are
+        voice_client = get(self.bot.voice_clients, guild=ctx.guild)
+        # is the variable that is the information for a bot, get is a function that store the information in a channel
+
+        await ctx.trigger_typing()
+        # Putting 'Bot's Krit is typing...' just for decorate a bot
+
+        source = await ytdlsource.create_source(ctx, search, loop=bot.loop, download=False)
+
+        startplayer = self.get_player(ctx)
+        x = list(itertools.islice(startplayer.queue._queue,0,startplayer.queue.qsize()))
+        print(startplayer.queue._queue)
+        print(x)
+        
+        if voice_client != None:
+            voice_client.stop()
+        
+        newqueue = asyncio.Queue()
+        await newqueue.put(source)
+        
+        numofsong = startplayer.queue.qsize()
+        
+        p = []
+        #for i in range(numofsong):
+            #p.append(startplayer.queue.get())
+        #print(p)
+        #ex. <coroutine object Queue.get at 0x000001CE18D8BAE0>
+
+        for j in range(numofsong):
+             await newqueue.put(x[j])
+
+        startplayer.queue = newqueue
+
+
+        print('Playing song')
+        
+
+ 
+       
+
+        
+
+
+
+        '''x = list(itertools.islice(splayer.queue._queue,0,player.queue.qsize()))
+        for i in x:
+            print(i['webpage_url'])
+            await q.queue.put(await ytdlsource.create_source(ctx, search = i['webpage_url'], loop=bot.loop, download=False)'''
+
+
+
+
+        #await player.queue.put(source)
+        #playing the song
+
+
+
+
+    # Open Queue List Command
+    @commands.command(name='queue', aliases=['q', 'playlist'])
+    async def queue_info(self, ctx):
+        print('queue')
+        voice_client = get(self.bot.voice_clients, guild=ctx.guild)
+        # is the variable that store the sound for a bot, (get is function that store the information in a channel)
+        if voice_client == None:
+            # Check if a bot isn't in any sever
+            await ctx.channel.send("Lil Krt is not connected to any Voice Channel", delete_after = 8)
+            return
+            
+        player = self.get_player(ctx)
+        print(player.queue)
+        print(type(player.queue))
+        print(player.queue.qsize())
+        # We need player for get information about list of the song
+        if player.queue.empty():
+            # Check if there is no song in the queue
+            await ctx.send('There are currently no more queued songs', delete_after = 6)
+            return
+        
+        upcoming = list(itertools.islice(player.queue._queue,0,player.queue.qsize()))
+        print(upcoming)
+        print(len(upcoming))
+        print(player.queue._queue)
+        print(type(player.queue._queue))
+        # The asyncio queue is similar to list but it isn't. So we create list for storage the song from the asyncio queue
+        listtostr = '\n'.join('**`{0}`**'.format(song["title"]) for song in upcoming)
+        # Format list to string
+        embed = discord.Embed(title=f'Upcoming - Next {len(upcoming)}', description=listtostr, color=0xFF7A33)
+        await ctx.send(embed=embed, delete_after = 45)
+
+
+
+
+
+
 
     # Pause the Song Command
     @commands.command(name='pause')
@@ -361,30 +457,6 @@ class Song(commands.Cog):
             voice_client.stop()
 
 
-    # Open Queue List Command
-    @commands.command(name='queue', aliases=['q', 'playlist'])
-    async def queue_info(self, ctx):
-        print('queue')
-        voice_client = get(self.bot.voice_clients, guild=ctx.guild)
-        # is the variable that store the sound for a bot, (get is function that store the information in a channel)
-        if voice_client == None:
-            # Check if a bot isn't in any sever
-            await ctx.channel.send("Lil Krt is not connected to any Voice Channel", delete_after = 8)
-            return
-            
-        player = self.get_player(ctx)
-        # We need player for get information about list of the song
-        if player.queue.empty():
-            # Check if there is no song in the queue
-            await ctx.send('There are currently no more queued songs', delete_after = 6)
-            return
-            
-        upcoming = list(itertools.islice(player.queue._queue,0,player.queue.qsize()))
-        # The asyncio queue is similar to list but it isn't. So we create list for storage the song from the asyncio queue
-        listtostr = '\n'.join('**`{0}`**'.format(song["title"]) for song in upcoming)
-        # Format list to string
-        embed = discord.Embed(title=f'Upcoming - Next {len(upcoming)}', description=listtostr, color=0xFF7A33)
-        await ctx.send(embed=embed, delete_after = 45)
 
 
     # Leave Channel Command
@@ -452,6 +524,7 @@ async def help(ctx):
 
 
 bot.add_cog(Song(bot))
+# Letting bot to do all the commands
 
 # Putting token in for activating Bot
 bot.run(token)

@@ -284,31 +284,12 @@ class Song(commands.Cog):
             #p.append(startplayer.queue.get())
         #print(p)
         #ex. <coroutine object Queue.get at 0x000001CE18D8BAE0>
-
         for j in range(numofsong):
              await newqueue.put(x[j])
 
         startplayer.queue = newqueue
-
-
         print('Playing song')
         
-
- 
-       
-
-        
-
-
-
-        '''x = list(itertools.islice(splayer.queue._queue,0,player.queue.qsize()))
-        for i in x:
-            print(i['webpage_url'])
-            await q.queue.put(await ytdlsource.create_source(ctx, search = i['webpage_url'], loop=bot.loop, download=False)'''
-
-
-
-
         #await player.queue.put(source)
         #playing the song
 

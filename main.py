@@ -1,5 +1,4 @@
 # Import Libary discord to access to Discord's API
-from ctypes.wintypes import PINT
 import discord
 from discord.ext import commands
 from discord.utils import get
@@ -14,6 +13,7 @@ import itertools
 # Import Libary youtube-dl for download the song from youtube.com
 from youtube_dl import YoutubeDL
 
+import random
 
 # Get Token from env file
 import os
@@ -250,14 +250,12 @@ class Song(commands.Cog):
         # Playing the song
 
 
-    # Play the Song Command
+    # Stop a curently song and play requested song immediately
     @commands.command(name='add', aliases=['a'])
     async def add_(self, ctx ,* ,search: str):
         print('add')
         self.bot = ctx.bot
         self._guild = ctx.guild
-        my_channel = ctx.author.voice.channel
-        # is where the channel you are
         voice_client = get(self.bot.voice_clients, guild=ctx.guild)
         # is the variable that is the information for a bot, get is a function that store the information in a channel
 
@@ -268,8 +266,7 @@ class Song(commands.Cog):
 
         startplayer = self.get_player(ctx)
         x = list(itertools.islice(startplayer.queue._queue,0,startplayer.queue.qsize()))
-        print(startplayer.queue._queue)
-        print(x)
+
         
         if voice_client != None:
             voice_client.stop()
@@ -279,22 +276,103 @@ class Song(commands.Cog):
         
         numofsong = startplayer.queue.qsize()
         
-        p = []
-        #for i in range(numofsong):
-            #p.append(startplayer.queue.get())
-        #print(p)
-        #ex. <coroutine object Queue.get at 0x000001CE18D8BAE0>
         for j in range(numofsong):
              await newqueue.put(x[j])
 
         startplayer.queue = newqueue
         print('Playing song')
-        
-        #await player.queue.put(source)
-        #playing the song
 
 
+    # remove the song to the first queue the Song Command
+    @commands.command(name='remove', aliases=['rm'])
+    async def remove_(self, ctx ,* ,amount: int):
+        print('remove')
+        self.bot = ctx.bot
+        self._guild = ctx.guild
+        my_channel = ctx.author.voice.channel
+        # is where the channel you are
+        voice_client = get(self.bot.voice_clients, guild=ctx.guild)
+        # is the variable that is the information for a bot, get is a function that store the information in a channel
+        bot_channel = voice_client.channel
+        # is where the channel your bot is
 
+        await ctx.trigger_typing()
+        # Putting 'Bot's Krit is typing...' just for decorate a bot
+
+        if voice_client == None:
+            # Check if a bot isn't in any sever
+            await ctx.channel.send("Lil Krit is not playing any song", delete_after = 8)
+            return
+
+        if bot_channel != my_channel:
+            # Check if a bot and you are not in the same sever  
+            # 'bot_channel' = where the channel bot is, 'my_channel' = where the channel you are
+            await ctx.channel.send("Can't do that. Lil Krit is currently connected to **`{0}`**".format(bot_channel), delete_after = 8)
+            return
+
+        startplayer = self.get_player(ctx)
+        listofthesong = list(itertools.islice(startplayer.queue._queue,0,startplayer.queue.qsize()))
+
+        newqueue = asyncio.Queue()
+        numofsong = startplayer.queue.qsize()
+        for j in range(numofsong):
+            if j == amount-1:
+                await ctx.channel.send("**`{0}`** has been removed by **`{1}`**".format((str(listofthesong[j]["title"])),ctx.author))
+            else:
+                await newqueue.put(listofthesong[j])
+
+        startplayer.queue = newqueue
+
+
+    # shuffle the queue
+    @commands.command(name='shuffle', aliases=['s'])
+    async def shuffle_(self, ctx):
+        print('shuffle')
+        self.bot = ctx.bot
+        self._guild = ctx.guild
+        my_channel = ctx.author.voice.channel
+        # is where the channel you are
+        voice_client = get(self.bot.voice_clients, guild=ctx.guild)
+        # is the variable that is the information for a bot, get is a function that store the information in a channel
+        bot_channel = voice_client.channel
+        # is where the channel your bot is
+
+        await ctx.trigger_typing()
+        # Putting 'Bot's Krit is typing...' just for decorate a bot
+
+
+        if voice_client == None:
+            # Check if a bot isn't in any sever
+            await ctx.channel.send("Lil Krit is not playing any song", delete_after = 8)
+            return
+
+        if bot_channel != my_channel:
+            # Check if a bot and you are not in the same sever  
+            # 'bot_channel' = where the channel bot is, 'my_channel' = where the channel you are
+            await ctx.channel.send("Can't do that. Lil Krit is currently connected to **`{0}`**".format(bot_channel), delete_after = 8)
+            return
+
+        startplayer = self.get_player(ctx)
+        if startplayer.queue.empty():
+            # Check if there is no song in the queue
+            await ctx.send('There are currently no more queued songs', delete_after = 6)
+            return
+
+        listofthesong = list(itertools.islice(startplayer.queue._queue,0,startplayer.queue.qsize()))
+        listofthesongshuffled = random.sample(listofthesong,len(listofthesong))
+
+        numofsong = startplayer.queue.qsize()
+
+        newqueue = asyncio.Queue()
+            
+        for j in range(numofsong):
+            await newqueue.put(listofthesongshuffled[j])
+
+        startplayer.queue = newqueue
+
+        listtostr = '\n'.join('**`{0}`**'.format(song["title"]) for song in listofthesongshuffled)
+        embed = discord.Embed(title='Queue has been shuffled', description=listtostr, color=0xFF7A33)
+        await ctx.send(embed=embed, delete_after = 45)
 
     # Open Queue List Command
     @commands.command(name='queue', aliases=['q', 'playlist'])
@@ -307,29 +385,19 @@ class Song(commands.Cog):
             await ctx.channel.send("Lil Krt is not connected to any Voice Channel", delete_after = 8)
             return
             
-        player = self.get_player(ctx)
-        print(player.queue)
-        print(type(player.queue))
-        print(player.queue.qsize())
+        startplayer = self.get_player(ctx)
         # We need player for get information about list of the song
-        if player.queue.empty():
+        if startplayer.queue.empty():
             # Check if there is no song in the queue
             await ctx.send('There are currently no more queued songs', delete_after = 6)
             return
         
-        upcoming = list(itertools.islice(player.queue._queue,0,player.queue.qsize()))
-        print(upcoming)
-        print(len(upcoming))
-        print(player.queue._queue)
-        print(type(player.queue._queue))
+        upcoming = list(itertools.islice(startplayer.queue._queue,0,startplayer.queue.qsize()))
         # The asyncio queue is similar to list but it isn't. So we create list for storage the song from the asyncio queue
         listtostr = '\n'.join('**`{0}`**'.format(song["title"]) for song in upcoming)
         # Format list to string
-        embed = discord.Embed(title=f'Upcoming - Next {len(upcoming)}', description=listtostr, color=0xFF7A33)
+        embed = discord.Embed(title='Upcoming - Next {0}'.format(len(upcoming)), description=listtostr, color=0xFF7A33)
         await ctx.send(embed=embed, delete_after = 45)
-
-
-
 
 
 
@@ -351,7 +419,7 @@ class Song(commands.Cog):
 
         if bot_channel != my_channel:
             # Check if a bot and you are not in the same sever  
-            # 'voice_client.channel' = where the channel bot is, 'channel' = where the channel you are
+            # 'bot_channel' = where the channel bot is, 'my_channel' = where the channel you are
             await ctx.channel.send("Can't do that. Lil Krit is currently connected to **`{0}`**".format(bot_channel), delete_after = 8)
             return
 
@@ -377,7 +445,7 @@ class Song(commands.Cog):
 
         if bot_channel != my_channel:
             # Check if a bot and you are not in the same sever  
-            # 'voice_client.channel' = where the channel bot is, 'channel' = where the channel you are
+            # 'bot_channel' = where the channel bot is, 'my_channel' = where the channel you are
             await ctx.channel.send("Can't do that. Lil Krit is currently connected to **`{0}`**".format(bot_channel), delete_after = 8)
             return
 
@@ -403,7 +471,7 @@ class Song(commands.Cog):
 
         if bot_channel != my_channel:
             # Check if a bot and you are not in the same sever  
-            # 'voice_client.channel' = where the channel bot is, 'channel' = where the channel you are
+            # 'bot_channel' = where the channel bot is, 'my_channel' = where the channel you are
             await ctx.channel.send("Can't do that. Lil Krit is currently connected to **`{0}`**".format(bot_channel), delete_after = 8)
             return
 
@@ -429,7 +497,7 @@ class Song(commands.Cog):
 
         if bot_channel != my_channel:
             # Check if a bot and you are not in the same sever  
-            # 'voice_client.channel' = where the channel bot is, 'channel' = where the channel you are
+            # 'bot_channel' = where the channel bot is, 'my_channel' = where the channel you are
             await ctx.channel.send("Can't do that. Lil Krit is currently connected to **`{0}`**".format(bot_channel), delete_after = 8)
             return
 
@@ -493,12 +561,15 @@ async def help(ctx):
     emBed.add_field(name='*test <text>', value = 'Respond message you\'ve send', inline = False)
     emBed.add_field(name='*clear <number of messages>', value = 'Delete the previous messages', inline = False)
     emBed.add_field(name='*play or p <URL or name of the song>', value = 'Play the song and add it in to a queue', inline = False)
+    emBed.add_field(name='*add or a', value = 'Add the song to the first of the queue', inline = False)
+    emBed.add_field(name='*remove or rm <ordered the song>', value = 'Remove the song', inline = False)
     emBed.add_field(name='*pause', value = 'Pause the song', inline = False)
     emBed.add_field(name='*resume', value = 'Resume the song', inline = False)
     emBed.add_field(name='*skip', value = 'Skip the song', inline = False)
     emBed.add_field(name='*stop', value = 'Stop the song', inline = False)
     emBed.add_field(name='*queue or q or playlist', value = 'Show the queue list', inline = False)
     emBed.add_field(name='*leave or l', value = 'Leave bot out of channel', inline = False)
+
     emBed.set_thumbnail(url='https://i.postimg.cc/W1CR8p3c/IMG-6998.jpg')
     emBed.set_author(name='Krithoolychit\'s Project', url = 'https://discord.com/users/496281331060178944', icon_url='https://i.postimg.cc/Vv2s2xBJ/Presentation1.png')
     await ctx.channel.send(embed = emBed)

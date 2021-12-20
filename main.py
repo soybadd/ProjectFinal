@@ -38,7 +38,7 @@ ytdl_format_options = {
     'ignoreerrors': False, # Stop if download is error.
     'no_warnings': True, # Do not print out anything for warnings.
     'default_search': 'auto', # Prepend this string if an input url is not valid. 'auto' for elaborate guessing
-    'quiet': True,
+    'quiet': True, #Do not print out the processing
 }
 
 ytdl = YoutubeDL(ytdl_format_options)
@@ -51,7 +51,7 @@ ffmpeg_options = {
 }
 #ref https://stackoverflow.com/questions/57688808/playing-music-with-a-bot-from-youtube-without-downloading-the-file
  
-
+# Getting source from search engine and seach link in Youtube (Return: Title, Link webpage, Requester)
 class ytdlsource(discord.PCMVolumeTransformer):
 
     def __init__(self, source, *, data, requester):
@@ -64,7 +64,7 @@ class ytdlsource(discord.PCMVolumeTransformer):
         # declare web_url
 
     @classmethod
-    # Download the song function
+    # Getting source
     async def create_source(cls, ctx, search: str, *, loop, download=False):
         # Creating event loop which is intermediaries for managing all the event.
         loop = loop or asyncio.get_event_loop()
@@ -86,10 +86,8 @@ class ytdlsource(discord.PCMVolumeTransformer):
 
         await ctx.send('```ini\n[Added {0} to the Queue.]\n```'.format(data["title"]), delete_after = 30)
 
-        # just for using the return
         if download:
             source = ytdl.prepare_filename(data)
-            # source is for generate the file name
         else:
             return {'webpage_url': data['webpage_url'], 'requester': ctx.author, 'title': data['title']}
         return cls(discord.FFmpegPCMAudio(source, **ffmpeg_options), data=data, requester=ctx.author)
@@ -108,12 +106,11 @@ class ytdlsource(discord.PCMVolumeTransformer):
         to_run = partial(ytdl.extract_info, url=data['webpage_url'], download=False)
 
         data = await loop.run_in_executor(None, to_run)
-        # Download the rest part that we need to stream
 
         return cls(discord.FFmpegPCMAudio(data['url'], **ffmpeg_options), data=data, requester=requester)
         # Using cls due to @classmethod (cls is for the class, self is for the object)
         # Add function 'ffmepeg_options' for plying until the end(Bug fixed)
-        # Finally, ffempeg will get the URL and stream it
+        # Finally, ffempeg will ready to stream the song(not download)
 
 # Creating player
 class MusicPlayer:                 
@@ -158,6 +155,7 @@ class MusicPlayer:
             self.current = source
 
             self._guild.voice_client.play(source, after=lambda _: self.bot.loop. call_soon_threadsafe(self.event.set))
+            # Play the song(stream)
             self.np = await self._channel.send('**Now Playing:** `{0}` requested by `{1}`'.format(source.title, source.requester))
             # Sending Now Playing
             await self.event.wait()
@@ -243,12 +241,10 @@ class Song(commands.Cog):
         startplayer = self.get_player(ctx)
         # Run get_player function Get the player from get_player function
         source = await ytdlsource.create_source(ctx, search, loop=bot.loop, download=False)
-        # Starting downloading the song via ytdlsource Class
+        # getting information of the song via ytdlsource Class
         # Add the song in to queue
-        print('Playing song')
+        print('queue added')
         await startplayer.queue.put(source)
-        # Playing the song
-
 
     # Stop a curently song and play requested song immediately
     @commands.command(name='add', aliases=['a'])
@@ -263,24 +259,33 @@ class Song(commands.Cog):
         # Putting 'Bot's Krit is typing...' just for decorate a bot
 
         source = await ytdlsource.create_source(ctx, search, loop=bot.loop, download=False)
+        # getting information of the song via ytdlsource Class
 
         startplayer = self.get_player(ctx)
-        x = list(itertools.islice(startplayer.queue._queue,0,startplayer.queue.qsize()))
-
+        # getting player
+        listofthesong = list(itertools.islice(startplayer.queue._queue,0,startplayer.queue.qsize()))
+        # getting song information from the player starting from first song (index0) to the last song(index-1) by itertools.islice
+        # change tuple into list
         
+        # check if a bot is playing the song
         if voice_client != None:
+            # stop it
             voice_client.stop()
-        
+
+        # creating newqueue
         newqueue = asyncio.Queue()
+        # add the song you've requested to the first order
         await newqueue.put(source)
         
         numofsong = startplayer.queue.qsize()
-        
+        # the amount of song
         for j in range(numofsong):
-             await newqueue.put(x[j])
+            # put the old queue after requested song(1st)
+             await newqueue.put(listofthesong[j])
 
         startplayer.queue = newqueue
-        print('Playing song')
+        # give old queue = new queue
+        print('adding to the first song')
 
 
     # remove the song to the first queue the Song Command
@@ -311,21 +316,31 @@ class Song(commands.Cog):
             return
 
         startplayer = self.get_player(ctx)
+        # getting player
         listofthesong = list(itertools.islice(startplayer.queue._queue,0,startplayer.queue.qsize()))
+        # getting song information from the player starting from first song (index0) to the last song(index-1) by itertools.islice
+        # change tuple into list
 
+        # creating newqueue
         newqueue = asyncio.Queue()
+
         numofsong = startplayer.queue.qsize()
+        # the amount of song
+
         for j in range(numofsong):
+            # put every song from the old queue into the new queue except the song you're want to remove
             if j == amount-1:
                 await ctx.channel.send("**`{0}`** has been removed by **`{1}`**".format((str(listofthesong[j]["title"])),ctx.author))
+                print('removing {0}'.format((str(listofthesong[j]["title"]))))
             else:
                 await newqueue.put(listofthesong[j])
 
+        # give old queue = new queue
         startplayer.queue = newqueue
 
 
     # shuffle the queue
-    @commands.command(name='shuffle', aliases=['s'])
+    @commands.command(name='shuffle', aliases=['sh'])
     async def shuffle_(self, ctx):
         print('shuffle')
         self.bot = ctx.bot
@@ -359,20 +374,30 @@ class Song(commands.Cog):
             return
 
         listofthesong = list(itertools.islice(startplayer.queue._queue,0,startplayer.queue.qsize()))
-        listofthesongshuffled = random.sample(listofthesong,len(listofthesong))
+        # getting song information from the player starting from first song (index0) to the last song(index-1) by itertools.islice
+        # change tuple into list
 
         numofsong = startplayer.queue.qsize()
+        # the amount of song
 
+        listofthesongshuffled = random.sample(listofthesong,numofsong)
+        # use random.sample to shuffle the queue
+
+        # creating newqueue
         newqueue = asyncio.Queue()
-            
+
+        # put the shuffled song into the new queue
         for j in range(numofsong):
             await newqueue.put(listofthesongshuffled[j])
 
+        # give old queue = new queue
         startplayer.queue = newqueue
 
+        # return the new shuffled queue to the channel
         listtostr = '\n'.join('**`{0}`**'.format(song["title"]) for song in listofthesongshuffled)
         embed = discord.Embed(title='Queue has been shuffled', description=listtostr, color=0xFF7A33)
-        await ctx.send(embed=embed, delete_after = 45)
+        await ctx.send(embed=embed, delete_after = 30)
+
 
     # Open Queue List Command
     @commands.command(name='queue', aliases=['q', 'playlist'])
@@ -455,7 +480,7 @@ class Song(commands.Cog):
 
 
     # Stop the Song Command
-    @commands.command(name='stop')
+    @commands.command(name='stop', aliases=['st'])
     async def stop_(self, ctx):
         print('stop')
         my_channel = ctx.author.voice.channel
@@ -481,7 +506,7 @@ class Song(commands.Cog):
 
 
     # Skip the Song in Queue Command
-    @commands.command(name='skip')
+    @commands.command(name='skip', aliases=['sk'])
     async def skip_(self, ctx):
         print('skip')
         my_channel = ctx.author.voice.channel
@@ -507,7 +532,6 @@ class Song(commands.Cog):
 
 
 
-
     # Leave Channel Command
     @commands.command(name='leave', aliases=['l'])
     async def leave_(self, ctx: commands.Context):
@@ -517,7 +541,7 @@ class Song(commands.Cog):
         await self.cleanup(ctx.guild)
 
 
-##########################################################################################################################################
+######################################################################################################################################################################
 
 # Turning on Bot
 @bot.event
@@ -539,14 +563,14 @@ async def clear(ctx, amount = 1):
     await ctx.channel.purge(limit = amount + 1)
 
 
-# Logout Command
+# Logout Command (For Developing Only)
 @bot.command()
 async def logout(ctx):
     print('logout')
     await ctx.channel.send('Loging Out...')
     await bot.logout()
 
-
+# Extra Command
 @bot.command()
 async def ajarnsun(ctx):
     await ctx.channel.send('A handsome teacher who is a big-hearted and generous person ever')
@@ -565,9 +589,10 @@ async def help(ctx):
     emBed.add_field(name='*remove or rm <ordered the song>', value = 'Remove the song', inline = False)
     emBed.add_field(name='*pause', value = 'Pause the song', inline = False)
     emBed.add_field(name='*resume', value = 'Resume the song', inline = False)
-    emBed.add_field(name='*skip', value = 'Skip the song', inline = False)
-    emBed.add_field(name='*stop', value = 'Stop the song', inline = False)
+    emBed.add_field(name='*skip or sk', value = 'Skip the song', inline = False)
+    emBed.add_field(name='*stop or st', value = 'Stop the song', inline = False)
     emBed.add_field(name='*queue or q or playlist', value = 'Show the queue list', inline = False)
+    emBed.add_field(name='*shuffle or sh', value = 'Shuffle the queue list', inline = False)
     emBed.add_field(name='*leave or l', value = 'Leave bot out of channel', inline = False)
 
     emBed.set_thumbnail(url='https://i.postimg.cc/W1CR8p3c/IMG-6998.jpg')

@@ -585,7 +585,7 @@ async def help(ctx):
     emBed.add_field(name='*test <text>', value = 'Respond message you\'ve send', inline = False)
     emBed.add_field(name='*clear <number of messages>', value = 'Delete the previous messages', inline = False)
     emBed.add_field(name='*play or p <URL or name of the song>', value = 'Play the song and add it in to a queue', inline = False)
-    emBed.add_field(name='*add or a', value = 'Add the song to the first of the queue', inline = False)
+    emBed.add_field(name='*add or a <URL or name of the song>', value = 'Add the song to the first of the queue', inline = False)
     emBed.add_field(name='*remove or rm <ordered the song>', value = 'Remove the song', inline = False)
     emBed.add_field(name='*pause', value = 'Pause the song', inline = False)
     emBed.add_field(name='*resume', value = 'Resume the song', inline = False)
